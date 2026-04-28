@@ -1,98 +1,36 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { articleService } from '$lib/services/articleService';
+	import { page } from '$app/state';
 	import type { ArticleDTO } from '$lib/dtos/article-dto';
-	import { onMount, tick } from 'svelte';
+	import { articleService } from '$lib/services/articleService';
+	import { markdownParserService } from '$lib/services/markdownParserService';
 	import { username } from '$lib/stores/auth';
+	import { onMount } from 'svelte';
 
-	import { marked, type Tokens } from 'marked';
-	import mermaid from 'mermaid';
-	import markedKatex from 'marked-katex-extension';
-	import 'katex/dist/katex.min.css';
-
+	let isLoading = $state<boolean>(false);
 	let article = $state<ArticleDTO | null>(null);
-	let isLoading = $state(true);
-	const articleId = $page.params.id;
+	let articleHtml = $state<string>('');
 
-	// 1. Konfiguracja renderera - to rozwiązuje problem z &gt; i strukturą HTML
-	const renderer = {
-		code(token: Tokens.Code) {
-			if (token.lang === 'mermaid') {
-				// Czyścimy encje, tak jak wcześniej
-				const cleanText = token.text
-					.replace(/&amp;/g, '&')
-					.replace(/&lt;/g, '<')
-					.replace(/&gt;/g, '>');
+	const articleId = $derived(page.params.id);
 
-				// UŻYWAMY <pre>, aby zachować znaki nowej linii (\n)
-				// Dodajemy margin, aby zachować odstępy
-				return `<pre class="mermaid" style="background: transparent; margin: 2rem 0;">${cleanText}</pre>`;
-			}
-			return false;
-		}
-	};
-
-	marked.use(markedKatex({ throwOnError: false }));
-	marked.use({ renderer });
-
-	// Reaktywne przetwarzanie Markdown
-	const articleHtml = $derived(article ? marked.parse(article.content) : '');
-
-	mermaid.initialize({
-		startOnLoad: false,
-		theme: 'dark',
-		securityLevel: 'loose'
-	});
-
-	async function renderVisuals() {
-		await tick(); // Czekamy na Svelte
-
-		const nodes = document.querySelectorAll<HTMLElement>('.mermaid');
-		if (nodes.length > 0) {
-			// KLUCZOWE: Mermaid nie dotknie elementu, który ma już ten atrybut
-			nodes.forEach((node) => {
-				node.removeAttribute('data-processed');
-			});
-
-			try {
-				// Wywołujemy run bez parametrów lub z konkretnymi nodami
-				await mermaid.run({
-					nodes: Array.from(nodes)
-				});
-			} catch (err) {
-				console.error('Błąd Mermaid:', err);
-			}
-		}
+	function formatDate(date: string) {
+		const parsedDate = new Date(date);
+		return parsedDate.toLocaleDateString('pl-PL', {
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric'
+		});
 	}
 
 	onMount(async () => {
-		mermaid.initialize({
-			startOnLoad: false,
-			theme: 'dark',
-			securityLevel: 'loose',
-			fontFamily: 'inherit'
-		});
 		try {
 			article = await articleService.getById(articleId!);
-			if (article) await renderVisuals();
+			if (article) articleHtml = await markdownParserService.renderVisual(article.content);
 		} catch (error) {
 			console.error('Błąd ładowania:', error);
 		} finally {
 			isLoading = false;
 		}
 	});
-
-	// Dodatkowe zabezpieczenie: jeśli treść zmieni się dynamicznie
-	$effect(() => {
-		// Obserwujemy articleHtml - gdy się zmieni, odpalamy logikę
-		if (articleHtml) {
-			renderVisuals();
-		}
-	});
-	function formatDate(dateStr: string | undefined) {
-		if (!dateStr) return '';
-		return new Date(dateStr).toLocaleDateString('pl-PL');
-	}
 </script>
 
 <div class="mx-auto max-w-4xl p-6">
@@ -116,7 +54,7 @@
 			{#if $username === article.author}
 				<a
 					href="/articles/{article.id}/edit"
-					class="rounded-md border border-orange-500 px-4 py-2 text-sm font-bold text-orange-500 transition-all hover:bg-orange-500 hover:text-white active:scale-95"
+					class="rounded-md px-4 py-2 text-sm font-bold text-orange-500 transition-all hover:bg-orange-500 hover:text-white"
 				>
 					Edit Post
 				</a>
